@@ -1,7 +1,7 @@
 `default_nettype none
 
 module tt_um_vga_example(
-    input  wire [7:0] ui_in,   // ungenutzt (unterdrückt)
+    input  wire [7:0] ui_in,   // ungenutzt
     output wire [7:0] uo_out,  // TinyVGA PMOD
     input  wire [7:0] uio_in,  // ungenutzt
     output wire [7:0] uio_out, // 0
@@ -11,27 +11,20 @@ module tt_um_vga_example(
     input  wire       rst_n    // aktives Low-Reset
 );
 
-    // VGA-Signale
-    wire hsync;
-    wire vsync;
-    reg  [1:0] R;
-    reg  [1:0] G;
-    reg  [1:0] B;
-    wire       video_active;
-    wire [9:0] pix_x;
-    wire [9:0] pix_y;
+    // VGA
+    wire hsync, vsync, video_active;
+    wire [9:0] pix_x, pix_y;
+    reg  [1:0] R, G, B;
 
-    // TinyVGA PMOD
-    assign uo_out = {hsync, B[0], G[0], R[0], vsync, B[1], G[1], R[1]};
-
-    // Ungenutzte Ausgänge
+    // PMOD
+    assign uo_out  = {hsync, B[0], G[0], R[0], vsync, B[1], G[1], R[1]};
     assign uio_out = 8'b0;
     assign uio_oe  = 8'b0;
 
-    // Unterdrücke Warnungen für ungenutzte Eingänge
+    // Unused inputs squelch
     wire _unused_ok = &{ena, uio_in, ui_in};
 
-    // VGA-Timing-Generator
+    // Timing
     hvsync_generator hvsync_gen(
         .clk(clk),
         .reset(~rst_n),
@@ -42,7 +35,7 @@ module tt_um_vga_example(
         .vpos(pix_y)
     );
 
-    // vsync → clk synchronisieren und Frame-Tick erzeugen
+    // vsync → frame tick (sync to clk)
     reg vsync_q1, vsync_q2;
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
@@ -53,77 +46,77 @@ module tt_um_vga_example(
             vsync_q2 <= vsync_q1;
         end
     end
-    wire frame_tick = (vsync_q1 & ~vsync_q2); // steigende Flanke von vsync
+    wire frame_tick = (vsync_q1 & ~vsync_q2);
 
-    // Baum (statisch)
+    // Tree (static)
     wire tree_trunk  = (pix_x >= 10'd320 && pix_x <= 10'd330 && pix_y >= 10'd240 && pix_y <= 10'd480);
     wire tree_leaves = (pix_x >= 10'd300 && pix_x <= 10'd350 && pix_y >= 10'd200 && pix_y <  10'd240);
 
-    // Fallende Blätter (kleine 5x5-Sprites)
-    localparam integer N_LEAVES = 8;
-    localparam [9:0]   TOP_Y    = 10'd200;
-    localparam [9:0]   BOT_Y    = 10'd480;
-    localparam [9:0]   LEAF_W   = 10'd5;
-    localparam [9:0]   RESET_Y  = 10'd200;
+    // Falling leaves (5x5)
+    localparam [9:0] LEAF_W  = 10'd5;
+    localparam [9:0] TOP_Y   = 10'd200;
+    localparam [9:0] BOT_Y   = 10'd480;
+    localparam [9:0] RESET_Y = 10'd200;
+    localparam [9:0] LEFT_X  = 10'd305;
+    localparam [9:0] RIGHT_X = 10'd350;
 
-    reg [9:0] leaf_x [0:N_LEAVES-1];
-    reg [9:0] leaf_y [0:N_LEAVES-1];
+    // 8 leaves
+    reg [9:0] leaf_x [0:7];
+    reg [9:0] leaf_y [0:7];
 
     integer i;
 
-    // Initialisierung & Bewegung (einzige sequentielle Logik)
+    // Init & motion
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
-            // Startpositionen verteilt unterhalb des Laubwerks
-            for (i = 0; i < N_LEAVES; i = i + 1) begin
-                leaf_x[i] <= 10'd305 + (i * 10'd5);
-                leaf_y[i] <= TOP_Y + (i[9:0] * 10'd2); // leicht versetzt
-            end
-        end else begin
-            // Ein Schritt pro Frame
-            if (frame_tick) begin
-                for (i = 0; i < N_LEAVES; i = i + 1) begin
-                    if (leaf_y[i] < BOT_Y)
-                        leaf_y[i] <= leaf_y[i] + 10'd1;
-                    else begin
-                        leaf_y[i] <= RESET_Y;
-                        // Optional: X leicht variieren, um Muster zu brechen (deterministisch)
-                        leaf_x[i] <= (leaf_x[i] + 10'd7 <= 10'd350) ? (leaf_x[i] + 10'd7) : 10'd305;
-                    end
+            // Hard-coded starts to avoid width warnings
+            leaf_x[0] <= LEFT_X + 10'd0;   leaf_y[0] <= TOP_Y + 10'd0;
+            leaf_x[1] <= LEFT_X + 10'd5;   leaf_y[1] <= TOP_Y + 10'd2;
+            leaf_x[2] <= LEFT_X + 10'd10;  leaf_y[2] <= TOP_Y + 10'd4;
+            leaf_x[3] <= LEFT_X + 10'd15;  leaf_y[3] <= TOP_Y + 10'd6;
+            leaf_x[4] <= LEFT_X + 10'd20;  leaf_y[4] <= TOP_Y + 10'd8;
+            leaf_x[5] <= LEFT_X + 10'd25;  leaf_y[5] <= TOP_Y + 10'd10;
+            leaf_x[6] <= LEFT_X + 10'd30;  leaf_y[6] <= TOP_Y + 10'd12;
+            leaf_x[7] <= LEFT_X + 10'd35;  leaf_y[7] <= TOP_Y + 10'd14;
+        end else if (frame_tick) begin
+            for (i = 0; i < 8; i = i + 1) begin
+                if (leaf_y[i] < BOT_Y) begin
+                    leaf_y[i] <= leaf_y[i] + 10'd1;
+                end else begin
+                    leaf_y[i] <= RESET_Y;
+                    // drift right by 7, wrap
+                    if (leaf_x[i] <= (RIGHT_X - 10'd7))
+                        leaf_x[i] <= leaf_x[i] + 10'd7;
+                    else
+                        leaf_x[i] <= LEFT_X;
                 end
             end
         end
     end
 
-    // Pixel-Farbzuweisung
+    // Pixel color (pure combinational)
+    reg leaf_here;
+    integer j;
+
     always @* begin
-        R = 2'b00;
-        G = 2'b00;
-        B = 2'b00;
+        // defaults (assign on all paths to avoid latches)
+        R = 2'b00; G = 2'b00; B = 2'b00;
+        leaf_here = 1'b0;
 
         if (video_active) begin
             if (tree_trunk) begin
-                // braun-ish
-                R = 2'b10;
-                G = 2'b01;
+                R = 2'b10; G = 2'b01;               // brown-ish
             end else if (tree_leaves) begin
-                // grün
-                G = 2'b11;
+                G = 2'b11;                           // green
             end else begin
-                // Prüfe, ob aktuelles Pixel in einem Blatt-Sprite liegt
-                reg leaf_here;
-                integer j;
-                leaf_here = 1'b0;
-                for (j = 0; j < N_LEAVES; j = j + 1) begin
+                for (j = 0; j < 8; j = j + 1) begin
                     if ( (pix_x >= leaf_x[j]) && (pix_x < (leaf_x[j] + LEAF_W)) &&
                          (pix_y >= leaf_y[j]) && (pix_y < (leaf_y[j] + LEAF_W)) ) begin
                         leaf_here = 1'b1;
                     end
                 end
                 if (leaf_here) begin
-                    // gelblich/hell (Herbstblatt)
-                    R = 2'b11;
-                    G = 2'b10;
+                    R = 2'b11; G = 2'b10;            // yellow-ish leaf
                 end
             end
         end
